@@ -118,6 +118,22 @@
         "category": "Typography"
     },
     {
+        "key": "generateComponentClasses",
+        "type": "boolean",
+        "default": false,
+        "title": "Generate component classes",
+        "description": "Generate component classes (e.g. .alert, .button-primary) in @layer components from the component token groups listed below. States (hover, pressed, disabled, focus) are emitted as CSS pseudo-classes (:hover, :active, :disabled, :focus-visible).",
+        "category": "Components"
+    },
+    {
+        "key": "componentGroupsToGenerate",
+        "type": "string",
+        "default": "alert,button,badge,field,switch,tooltip",
+        "title": "Component groups to emit",
+        "description": "Comma-separated list of component group names whose tokens should be emitted as @layer components classes. Each name is matched against tokens whose variable name contains `-<name>-` (case-insensitive).",
+        "category": "Components"
+    },
+    {
         "key": "forceRemUnit",
         "type": "boolean",
         "default": false,

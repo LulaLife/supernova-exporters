@@ -117,6 +117,10 @@ export type ExporterConfiguration = {
   debug: boolean
   /** When enabled, generates typography classes in @layer components using typography tokens */
   generateTypographyClasses: boolean
+  /** When enabled, generates component classes (e.g. .alert, .button-primary) in @layer components for the component groups listed in componentGroupsToGenerate */
+  generateComponentClasses: boolean
+  /** Comma-separated list of component group names whose tokens should be emitted as classes in @layer components (e.g. "alert,button,badge") */
+  componentGroupsToGenerate: string
   /** When enabled, removes all default Tailwind utilities by adding --*: initial; to reset group */
   disableAllDefaults: boolean
   /** When enabled, generated Tailwind classnames will be saved back to tokens as custom properties */

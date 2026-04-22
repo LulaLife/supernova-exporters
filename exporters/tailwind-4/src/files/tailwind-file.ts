@@ -9,6 +9,7 @@ import { exportConfiguration } from ".."
 import { FileStructure } from "../../config"
 import { convertedToken, isAllowedTokenType, analyzeTokensForOklchUtilities, generateOklchUtilityVariable } from "../content/token"
 import { generateTypographyClass } from "../content/typography"
+import { generateComponentClasses } from "../content/component"
 import { DEFAULT_CONFIG_FILE_NAMES } from "../constants/defaults"
 
 /**
@@ -330,6 +331,9 @@ export function styleOutputFile(tokens: Array<Token>, tokenGroups: Array<TokenGr
 
     // Add typography classes
     content += generateTypographyContent(processedTokens, tokenGroups)
+
+    // Add component classes (alert, button, badge, etc.) inside @layer components
+    content += generateComponentClasses(processedTokens, tokenGroups)
 
     // Add disclaimer if enabled
     if (exportConfiguration.showGeneratedFileDisclaimer) {
