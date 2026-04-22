@@ -17,7 +17,64 @@ This exporter package takes your design system tokens and converts them to Tailw
 - **File organization:** Can generate output in various ways, such as separate files for each token type, or a single configuration file.
 - **Reset rules:** Can generate reset rules to disable default Tailwind styles, either in a separate file or within the main CSS file.
 - **Typography classes:** Can generate typography classes in @layer components using typography tokens.
+- **Component classes (LulaLife fork):** Can generate component classes (e.g. `.alert`, `.button-primary`, `.button-primary:hover`) in @layer components from configured component token groups. See _Component classes_ below.
 - **Debug information:** Can include debug information in the generated files to help with troubleshooting.
+
+## Component classes (LulaLife fork)
+
+This fork adds an optional `@layer components` emission path for component-level tokens (alert, button, badge, etc.) so consumers can use semantic classes directly instead of composing utilities per component.
+
+### Configuration
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `generateComponentClasses` | `false` | Enable component-class emission. |
+| `componentGroupsToGenerate` | `"alert,button,badge,field,switch,tooltip"` | Comma-separated list of component names. Each name matches tokens whose CSS variable name contains `-<name>-` (case-insensitive). |
+
+### How it works
+
+Given tokens like:
+
+```
+--spacing-alert-padding-x
+--spacing-alert-padding-y
+--spacing-alert-gap
+--radius-alert-radius
+--color-alert-success-bg
+--color-alert-success-icon
+--color-alert-success-border
+```
+
+The exporter emits:
+
+```css
+@layer components {
+  .alert {
+    padding-inline: var(--spacing-alert-padding-x);
+    padding-block: var(--spacing-alert-padding-y);
+    gap: var(--spacing-alert-gap);
+    border-radius: var(--radius-alert-radius);
+  }
+  .alert-success {
+    background-color: var(--color-alert-success-bg);
+    color: var(--color-alert-success-icon);
+    border-color: var(--color-alert-success-border);
+  }
+}
+```
+
+State suffixes (`-hover`, `-pressed`, `-disabled`, `-focus`) become CSS pseudo-classes (`:hover`, `:active`, `:disabled`, `:focus-visible`). `-placeholder` maps to `::placeholder`.
+
+### Supported token-leaf → CSS-property mapping
+
+`padding-x` → `padding-inline`, `padding-y` → `padding-block`, `gap`, `margin-*`, `radius` → `border-radius`, `height` / `min-height` / `max-height`, `width` / `min-width` / `max-width`, `bg` / `background` → `background-color`, `color` / `text` / `icon` / `foreground` → `color`, `border` → `border-color`, `border-width`, `shadow` → `box-shadow`, `font-size`, `font-weight`, `line-height`, `opacity`, `z-index`.
+
+Leaves not in this map are skipped (no class emission). A few meta leaves like `padding-text-y` and `label-gap` are explicitly skipped.
+
+### Limitations
+
+- Only the `singleFile` file structure is currently wired up for component classes. In `separateByType` mode, component classes are not emitted (component tokens span multiple types like spacing + radius + color).
+- Variant detection is driven by the CSS variable name pattern (`-<component>-<variant>-<property>` or `-<component>-<property>-<state>`), not the Supernova group hierarchy. This works because the exporter's naming helper already collapses the group path into the variable name.
 
 ## Example of Output
 

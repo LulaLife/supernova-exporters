@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - LulaLife fork
+
+### Added
+- Component-class emission inside `@layer components` for component-grouped tokens (alert, button, badge, etc.). Controlled by two new settings: `generateComponentClasses` (default `false`) and `componentGroupsToGenerate` (default `"alert,button,badge,field,switch,tooltip"`). State suffixes (`hover`, `pressed`, `disabled`, `focus`, `placeholder`) are emitted as CSS pseudo-classes (`:hover`, `:active`, `:disabled`, `:focus-visible`, `::placeholder`). See the README _Component classes_ section for details.
+
 ## [1.1.1] - 2025-09-10
 - Fix spacing token output: generate `--spacing-*` instead of `--size-*` for sizing. Thanks @mickaelnijean for contribution!
 
