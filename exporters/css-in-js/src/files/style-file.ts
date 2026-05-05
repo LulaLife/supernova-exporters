@@ -21,21 +21,25 @@ function relativeBaseImport(fromThemePath: string, fileNameWithoutExt: string): 
 }
 
 /**
- * Returns whether styleOutputFile would emit a file for the given type and theme.
- * Used by cross-file imports to know whether a peer file will exist.
+ * Returns the tokens that styleOutputFile would emit for the given type and theme,
+ * or null if no file would be generated. Used as the single source of truth for
+ * both the early return and for deciding which peer themed files import targets.
  */
-function willGenerateStyleFile(
+function selectTokensForFile(
   type: TokenType,
   tokens: Array<Token>,
   themePath: string,
   theme?: TokenTheme,
-): boolean {
-  if (!exportConfiguration.exportBaseValues && !themePath) return false
-  const tokensOfType = tokens.filter(t => t.tokenType === type)
+): Array<Token> | null {
+  if (!exportConfiguration.exportBaseValues && !themePath) return null
+  let filtered = tokens.filter(t => t.tokenType === type)
   if (themePath && theme && exportConfiguration.exportOnlyThemedTokens) {
-    return ThemeHelper.filterThemedTokens(tokensOfType, theme).length > 0
+    filtered = ThemeHelper.filterThemedTokens(filtered, theme)
+    if (filtered.length === 0) return null
+  } else if (!exportConfiguration.generateEmptyFiles && filtered.length === 0) {
+    return null
   }
-  return tokensOfType.length > 0 || exportConfiguration.generateEmptyFiles
+  return filtered
 }
 
 /**
@@ -66,16 +70,8 @@ export function styleOutputFile(
   // Clear any previously cached token names to ensure clean generation
   resetTokenNameTracking()
 
-  if (!willGenerateStyleFile(type, tokens, themePath, theme)) {
-    return null
-  }
-
-  // Filter to only include tokens of the specified type, then narrow to overrides for
-  // themed-only output. Mirrors the predicate above; predicate guarantees length > 0.
-  let tokensOfType = tokens.filter((token) => token.tokenType === type)
-  if (themePath && theme && exportConfiguration.exportOnlyThemedTokens) {
-    tokensOfType = ThemeHelper.filterThemedTokens(tokensOfType, theme)
-  }
+  const tokensOfType = selectTokensForFile(type, tokens, themePath, theme)
+  if (!tokensOfType) return null
 
   // Create a lookup map for quick token reference resolution
   const mappedTokens = new Map(tokens.map((token) => [token.id, token]))
@@ -98,12 +94,11 @@ export function styleOutputFile(
     ? new Set(theme.overriddenTokens.map(o => o.id))
     : new Set<string>()
 
-  // Token types whose peer themed file will exist alongside this one — uses the same
-  // predicate as the early return so the two can never drift out of sync.
+  // Token types whose peer themed file will exist alongside this one.
   const peerThemedTypes = new Set<TokenType>()
   if (themePath && theme) {
     for (const t of Object.values(TokenType)) {
-      if (t !== type && willGenerateStyleFile(t, tokens, themePath, theme)) {
+      if (t !== type && selectTokensForFile(t, tokens, themePath, theme) !== null) {
         peerThemedTypes.add(t)
       }
     }
