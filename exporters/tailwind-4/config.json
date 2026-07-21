@@ -134,6 +134,14 @@
         "category": "Components"
     },
     {
+        "key": "useTailwindUtilityAPI",
+        "type": "boolean",
+        "default": true,
+        "title": "Emit size variants via @utility",
+        "description": "When enabled, size variants (sm/md/lg) of component classes are emitted as @utility blocks instead of @layer components, making them usable with Tailwind variants like `md:radio-size-sm` or `hover:radio-size-md`. All other variants (color/style variants, hover/pressed/disabled/focus states) are unaffected and still emitted in @layer components.",
+        "category": "Components"
+    },
+    {
         "key": "forceRemUnit",
         "type": "boolean",
         "default": false,

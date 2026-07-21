@@ -69,6 +69,20 @@ const STATE_SUFFIX_TO_PSEUDO: Record<string, string> = {
  */
 const SKIP_LEAVES = new Set(["padding-text-y", "padding-text-x", "label-gap"])
 
+/** Trailing variant keywords treated as Tailwind-breakpoint-style size variants (e.g. `size-md`, `radio-lg`). */
+const SIZE_VARIANT_KEYWORDS = new Set(["sm", "md", "lg"])
+
+/**
+ * A variant is a "size" variant (eligible for @utility promotion) when its last
+ * path segment is exactly `sm`, `md`, or `lg` — regardless of component or the
+ * rest of the variant path (e.g. "size-md", "radio-lg" both qualify).
+ */
+function isSizeVariant(variant: string): boolean {
+  if (!variant) return false
+  const lastSegment = variant.slice(variant.lastIndexOf("-") + 1)
+  return SIZE_VARIANT_KEYWORDS.has(lastSegment)
+}
+
 interface ParsedTail {
   /** Variant path joined by '-' (e.g. "primary" or "size-sm"). Empty string for base component. */
   variant: string
@@ -163,6 +177,8 @@ export function generateComponentClasses(tokens: Array<Token>, tokenGroups: Arra
 
   // selector → ordered list of CSS declarations (with their origin, for dedupe preference)
   const classMap = new Map<string, string[]>()
+  // Size-variant (sm/md/lg) selectors promoted to @utility so they work with Tailwind variants (md:, hover:, etc.)
+  const utilityMap = new Map<string, string[]>()
   // Track declaration order so we can dedupe by property, keeping the first occurrence per selector.
   const seenPropsBySelector = new Map<string, Set<string>>()
 
@@ -191,37 +207,54 @@ export function generateComponentClasses(tokens: Array<Token>, tokenGroups: Arra
       if (seen.has(parsed.property)) continue
       seen.add(parsed.property)
 
-      let decls = classMap.get(selector)
+      // Size variants (sm/md/lg) go to @utility so they compose with Tailwind variants; states never promote.
+      const promoteToUtility =
+        exportConfiguration.useTailwindUtilityAPI && parsed.state === "" && isSizeVariant(parsed.variant)
+      const targetMap = promoteToUtility ? utilityMap : classMap
+
+      let decls = targetMap.get(selector)
       if (!decls) {
         decls = []
-        classMap.set(selector, decls)
+        targetMap.set(selector, decls)
       }
       decls.push(declaration)
-
-      // Also annotate with description if enabled.
-      if (exportConfiguration.showDescriptions && token.description) {
-        // Descriptions attach to the selector, not individual declarations — emit once per selector.
-        // (Handled below during output so multiple tokens don't produce duplicate comments.)
-      }
     }
   }
 
-  if (classMap.size === 0) return ""
-
-  // Stable ordering: base selector first within each component, then variants alpha, then pseudo states after default.
-  const sortedSelectors = Array.from(classMap.keys()).sort(compareSelectors)
+  if (classMap.size === 0 && utilityMap.size === 0) return ""
 
   const indent = "  "
-  let output = "\n@layer components {\n"
-  for (const selector of sortedSelectors) {
-    const decls = classMap.get(selector)!
-    output += `${indent}${selector} {\n`
-    for (const decl of decls) {
-      output += `${indent}  ${decl}\n`
+  let output = ""
+
+  // Size-variant classes promoted to @utility, one top-level block per class.
+  if (utilityMap.size > 0) {
+    const sortedUtilitySelectors = Array.from(utilityMap.keys()).sort(compareSelectors)
+    for (const selector of sortedUtilitySelectors) {
+      const decls = utilityMap.get(selector)!
+      const utilityName = selector.slice(1) // strip leading '.'
+      output += `\n@utility ${utilityName} {\n`
+      for (const decl of decls) {
+        output += `${indent}${decl}\n`
+      }
+      output += "}\n"
     }
-    output += `${indent}}\n`
   }
-  output += "}\n"
+
+  if (classMap.size > 0) {
+    // Stable ordering: base selector first within each component, then variants alpha, then pseudo states after default.
+    const sortedSelectors = Array.from(classMap.keys()).sort(compareSelectors)
+
+    output += "\n@layer components {\n"
+    for (const selector of sortedSelectors) {
+      const decls = classMap.get(selector)!
+      output += `${indent}${selector} {\n`
+      for (const decl of decls) {
+        output += `${indent}  ${decl}\n`
+      }
+      output += `${indent}}\n`
+    }
+    output += "}\n"
+  }
 
   return output
 }

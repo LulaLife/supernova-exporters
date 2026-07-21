@@ -30,6 +30,7 @@ This fork adds an optional `@layer components` emission path for component-level
 | --- | --- | --- |
 | `generateComponentClasses` | `false` | Enable component-class emission. |
 | `componentGroupsToGenerate` | `"alert,button,badge,field,switch,tooltip"` | Comma-separated list of component names. Each name matches tokens whose CSS variable name contains `-<name>-` (case-insensitive). |
+| `useTailwindUtilityAPI` | `false` | Emit size variants (`sm`/`md`/`lg`) as `@utility` blocks instead of `@layer components`, so they can be combined with Tailwind variants like `md:` and `hover:` (e.g. `className="radio-size-md md:radio-size-sm"`). All other variants (color/style, hover/pressed/disabled/focus states) are unaffected. See _Utility API size variants_ below. |
 
 ### How it works
 
@@ -68,6 +69,31 @@ State suffixes (`-hover`, `-pressed`, `-disabled`, `-focus`) become CSS pseudo-c
 ### Supported token-leaf → CSS-property mapping
 
 `padding-x` → `padding-inline`, `padding-y` → `padding-block`, `gap`, `margin-*`, `radius` → `border-radius`, `height` / `min-height` / `max-height`, `width` / `min-width` / `max-width`, `bg` / `background` → `background-color`, `color` / `text` / `icon` / `foreground` → `color`, `border` → `border-color`, `border-width`, `shadow` → `box-shadow`, `font-size`, `font-weight`, `line-height`, `opacity`, `z-index`.
+
+### Utility API size variants
+
+Plain CSS classes emitted into `@layer components` are not recognized by Tailwind's variant engine — writing `md:radio-size-sm` in markup produces no CSS, because Tailwind only compounds a variant prefix (`md:`, `hover:`, `dark:`, ...) with classes it knows are utilities.
+
+When `useTailwindUtilityAPI` is enabled, any variant whose last path segment is exactly `sm`, `md`, or `lg` (e.g. `size-sm`, `size-md`, `size-lg`) is emitted as a top-level `@utility` block instead:
+
+```css
+@utility radio-size-sm {
+  width: var(--spacing-radio-size-sm);
+  height: var(--spacing-radio-size-sm);
+}
+@utility radio-size-md {
+  width: var(--spacing-radio-size-md);
+  height: var(--spacing-radio-size-md);
+}
+```
+
+This makes the classes real Tailwind utilities, so they can be combined with any variant:
+
+```html
+<input type="radio" className="radio-size-md md:radio-size-sm" />
+```
+
+Everything else — color/style variants (e.g. `.button-primary`) and pseudo-state suffixes (`:hover`, `:active`, `:disabled`, `:focus-visible`, `::placeholder`) — is unaffected and keeps emitting into `@layer components` as before, since those aren't meant to be toggled per-breakpoint.
 
 Leaves not in this map are skipped (no class emission). A few meta leaves like `padding-text-y` and `label-gap` are explicitly skipped.
 

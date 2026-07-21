@@ -121,6 +121,8 @@ export type ExporterConfiguration = {
   generateComponentClasses: boolean
   /** Comma-separated list of component group names whose tokens should be emitted as classes in @layer components (e.g. "alert,button,badge") */
   componentGroupsToGenerate: string
+  /** When enabled, size variants (sm/md/lg) of component classes are emitted as @utility blocks instead of @layer components, so they can be combined with Tailwind variants like md: and hover: (e.g. className="radio-size-md md:radio-size-sm") */
+  useTailwindUtilityAPI: boolean
   /** When enabled, removes all default Tailwind utilities by adding --*: initial; to reset group */
   disableAllDefaults: boolean
   /** When enabled, generated Tailwind classnames will be saved back to tokens as custom properties */
