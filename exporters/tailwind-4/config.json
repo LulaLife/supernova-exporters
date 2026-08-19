@@ -549,6 +549,25 @@
         "category": "CSS selectors"
     },
     {
+        "key": "rootIndirectionForColors",
+        "type": "boolean",
+        "default": false,
+        "title": "Runtime-overridable color leaves",
+        "description": "When the base selector resolves to @theme/@theme inline, emit every leaf color token (no referencedTokenId — i.e. a primitive palette value) as a raw value in a :root block under a distinct alias name, and point the theme token at it via var(). Lets a consumer re-theme at runtime (e.g. per-tenant white-labeling) by overriding the alias, without touching alias/semantic tokens (they already chain to these leaves via var()). Requires 'Use token references'; skipped with an explanatory comment if that is off. Also switches the OKLCH channel utility variables (custom-opacity colors in shadows/borders/gradients) for those leaves to CSS Color 4 relative color syntax so they track the override too (OKLCH color formats only). Note: overrides must be unlayered or set as an inline style on the root element — an override inside a cascade layer loses to the unlayered :root block.",
+        "category": "CSS selectors"
+    },
+    {
+        "key": "rootIndirectionPrefix",
+        "type": "string",
+        "default": "ds",
+        "title": "Root indirection alias prefix",
+        "description": "Prefix for the :root alias custom properties, as --<prefix>-<token-name> (e.g. 'ds' gives --ds-color-palette-brand-500). Consumers override this alias rather than the theme token itself. Must be non-empty and must not collide with a Tailwind theme namespace.",
+        "category": "CSS selectors",
+        "dependsOn": {
+            "rootIndirectionForColors": true
+        }
+    },
+    {
         "key": "globalPrefix",
         "type": "string",
         "default": "",

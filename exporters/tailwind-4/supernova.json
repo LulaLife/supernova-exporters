@@ -1,0 +1,14 @@
+{
+  "workspaceId": "664249",
+  "designSystemId": "786017",
+  "designSystemVersionId": "825706",
+  "brandId": "cf7a553a-4e19-4402-99c9-d217e22521d3",
+  "themeIds": [],
+  "exporterId": "20158",
+  "workspaceName": "Lula",
+  "designSystemName": "Lula Design System",
+  "designSystemVersionName": "Shared Draft",
+  "exporterName": "Tailwind CSS 4",
+  "write_to": ".build/",
+  "description": "Note to our fellow developers: Install Supernova integration from the VSCode marketplace and then our  Tailwind CSS 4 exporter will synchronize design data and generate appropriate code from the  Shared Draft design system every time you request it through the extension interface, fully automatically."
+}
