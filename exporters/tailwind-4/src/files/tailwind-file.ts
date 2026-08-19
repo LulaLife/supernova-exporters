@@ -7,7 +7,7 @@ import { FileHelper, ThemeHelper, GeneralHelper } from "@supernovaio/export-util
 import { OutputTextFile, Token, TokenGroup, TokenType, TokenTheme } from "@supernovaio/sdk-exporters"
 import { exportConfiguration } from ".."
 import { FileStructure } from "../../config"
-import { convertedToken, isAllowedTokenType, analyzeTokensForOklchUtilities, generateOklchUtilityVariable } from "../content/token"
+import { convertedToken, isAllowedTokenType, isRootIndirectedColorLeaf, analyzeTokensForOklchUtilities, generateOklchUtilityVariable } from "../content/token"
 import { generateTypographyClass } from "../content/typography"
 import { generateComponentClasses } from "../content/component"
 import { DEFAULT_CONFIG_FILE_NAMES } from "../constants/defaults"
@@ -149,6 +149,73 @@ function generateResetRules(selector: string): string {
 }
 
 /**
+ * Builds a `:root { ... }` block of alias custom properties carrying the raw resolved value of
+ * every leaf color token eligible for root indirection (see isRootIndirectedColorLeaf) —
+ * primitive palette values with no referencedTokenId. Alias/semantic color tokens already chain
+ * to these via var() inside @theme, so only the leaves need an entry to become overridable.
+ *
+ * The alias is a distinct custom property (`--<prefix>-<token-name>`), NOT the token's own name,
+ * so the `:root` declaration and the `@theme` declaration never contend in the cascade.
+ *
+ * @param tokens - Tokens considered for the current file/theme
+ * @param mappedTokens - Map of all tokens for reference resolution
+ * @param tokenGroups - Array of token groups for naming
+ * @returns The :root block (empty string if no token is eligible) and the matching id set, so the
+ *   caller can tell convertedToken to point these ids at their alias in the @theme pass
+ */
+function generateRootIndirectionBlock(
+    tokens: Array<Token>,
+    mappedTokens: Map<string, Token>,
+    tokenGroups: Array<TokenGroup>
+): { block: string; ids: Set<string> } {
+    const eligible = tokens.filter(isRootIndirectedColorLeaf)
+    const ids = new Set(eligible.map((token) => token.id))
+    if (eligible.length === 0) {
+        return { block: '', ids }
+    }
+
+    const declarations = eligible
+        .map((token) => convertedToken(token, mappedTokens, tokenGroups, undefined, { asRootAlias: true }))
+        .filter((declaration): declaration is string => declaration !== null)
+        .join('\n')
+
+    return { block: `:root {\n${declarations}\n}\n\n`, ids }
+}
+
+/**
+ * Emits the `:root` alias block for a file when root indirection applies, or an explanatory
+ * comment when the flag is on but the configuration makes it a no-op. A silent no-op is the
+ * failure mode worth avoiding here: a consumer enables a white-labeling feature, gets
+ * byte-identical output, and has nothing to debug against.
+ *
+ * @param themeDirective - The resolved base selector for this file (@theme / @theme inline / other)
+ * @param tokens - Tokens considered for the current file/theme
+ * @param mappedTokens - Map of all tokens for reference resolution
+ * @param tokenGroups - Array of token groups for naming
+ * @returns The content to prepend, and the ids to point at their alias in the @theme pass
+ */
+function generateRootIndirectionContent(
+    themeDirective: string,
+    tokens: Array<Token>,
+    mappedTokens: Map<string, Token>,
+    tokenGroups: Array<TokenGroup>
+): { content: string; ids: Set<string> | undefined } {
+    if (!exportConfiguration.rootIndirectionForColors || !themeDirective.startsWith('@theme')) {
+        return { content: '', ids: undefined }
+    }
+    if (!exportConfiguration.useReferences) {
+        return {
+            content: '/* Runtime-overridable color leaves: skipped — requires "Use token references",\n' +
+                '   otherwise semantic tokens are baked to raw values and would not follow an override. */\n\n',
+            ids: undefined,
+        }
+    }
+
+    const { block, ids } = generateRootIndirectionBlock(tokens, mappedTokens, tokenGroups)
+    return { content: block, ids }
+}
+
+/**
  * Generates typography classes for typography tokens
  * This function creates CSS classes for typography tokens based on the configuration
  * 
@@ -183,14 +250,17 @@ function generateTypographyContent(tokens: Array<Token>, tokenGroups: Array<Toke
  * @param tokenGroups - Array of token groups
  * @param colorTokensNeedingOklch - Set of token IDs that need OKLCH utility variables
  * @param type - Specific token type (if applicable)
+ * @param rootIndirectedIds - Ids of leaf color tokens that got a :root alias; emitted here as
+ *   var(--<alias>) instead of their raw value
  * @returns CSS variable declarations as a string
  */
 function generateCSSVariables(
-    tokens: Array<Token>, 
-    mappedTokens: Map<string, Token>, 
+    tokens: Array<Token>,
+    mappedTokens: Map<string, Token>,
     tokenGroups: Array<TokenGroup>,
     colorTokensNeedingOklch?: Set<string>,
-    type?: TokenType
+    type?: TokenType,
+    rootIndirectedIds?: Set<string>
 ): string {
     const indentString = GeneralHelper.indent(exportConfiguration.indent)
     let cssVariables = ''
@@ -221,7 +291,7 @@ function generateCSSVariables(
         
         // Convert tokens to CSS variable declarations
         const cssDeclarations = tokensOfType
-            .map((token) => convertedToken(token, mappedTokens, tokenGroups, colorTokensNeedingOklch))
+            .map((token) => convertedToken(token, mappedTokens, tokenGroups, colorTokensNeedingOklch, { rootIndirectedIds }))
             .filter((declaration): declaration is string => declaration !== null) // Filter out null returns
             .join("\n")
         
@@ -274,25 +344,11 @@ export function styleOutputFile(tokens: Array<Token>, tokenGroups: Array<TokenGr
 
     // Analyze tokens for OKLCH utility needs
     const colorTokensNeedingOklch = analyzeTokensForOklchUtilities(processedTokens, tokenGroups)
-    // Generate OKLCH utility variables
-    let oklchUtilityVariables = ''
-    if (colorTokensNeedingOklch.size > 0) {
-        oklchUtilityVariables = Array.from(colorTokensNeedingOklch)
-            .map(id => {
-                const token = mappedTokens.get(id)
-                if (token) {
-                    return generateOklchUtilityVariable(token, tokenGroups)
-                }
-                return ''
-            })
-            .filter(Boolean)
-            .join('\n') + '\n'
-    }
 
     // Start with Tailwind import with prefix if configured, but only for base file
     let content = ''
     if (!themePath) {
-        content = exportConfiguration.globalPrefix 
+        content = exportConfiguration.globalPrefix
             ? `@import "tailwindcss" prefix(${exportConfiguration.globalPrefix});\n\n`
             : '@import "tailwindcss";\n\n'
     }
@@ -305,9 +361,41 @@ export function styleOutputFile(tokens: Array<Token>, tokenGroups: Array<TokenGr
     )
 
     // Use configured selector for base tokens or theme selector for themed tokens
-    const selector = themePath && theme 
+    const selector = themePath && theme
         ? exportConfiguration.themeSelector.replace('{theme}', themePath)
         : exportConfiguration.cssSelector
+
+    // Check if any tokens use references and if references are enabled
+    const hasReferences = exportConfiguration.useReferences && processedTokens.some(token =>
+        // @ts-ignore
+        token.value.referencedTokenId && token.value.referencedTokenId !== null && token.value.referencedTokenId !== undefined
+    )
+
+    // Add inline flag for @theme if it's the base selector and there are references
+    const themeDirective = selector === '@theme' && hasReferences ? '@theme inline' : selector
+
+    // For the @theme family, optionally give leaf color tokens a runtime-overridable :root alias
+    // and have the @theme copy point at it instead of repeating the raw value
+    const rootIndirection = generateRootIndirectionContent(themeDirective, processedTokens, mappedTokens, tokenGroups)
+    content += rootIndirection.content
+    const rootIndirectedIds = rootIndirection.ids
+
+    // Generate OKLCH utility variables. Built AFTER the root-indirection decision so a channel
+    // variable only points at an alias in the file that actually declared it — in every other
+    // file (themes, non-@theme selectors) it keeps baking the value, as before.
+    let oklchUtilityVariables = ''
+    if (colorTokensNeedingOklch.size > 0) {
+        oklchUtilityVariables = Array.from(colorTokensNeedingOklch)
+            .map(id => {
+                const token = mappedTokens.get(id)
+                if (token) {
+                    return generateOklchUtilityVariable(token, tokenGroups, rootIndirectedIds)
+                }
+                return ''
+            })
+            .filter(Boolean)
+            .join('\n') + '\n'
+    }
 
     // Generate CSS variables
     let cssVariables = ''
@@ -317,16 +405,8 @@ export function styleOutputFile(tokens: Array<Token>, tokenGroups: Array<TokenGr
     }
     // Prepend OKLCH utility variables
     cssVariables += oklchUtilityVariables
-    cssVariables += generateCSSVariables(processedTokens, mappedTokens, tokenGroups, colorTokensNeedingOklch)
+    cssVariables += generateCSSVariables(processedTokens, mappedTokens, tokenGroups, colorTokensNeedingOklch, undefined, rootIndirectedIds)
 
-    // Check if any tokens use references and if references are enabled
-    const hasReferences = exportConfiguration.useReferences && processedTokens.some(token => 
-        // @ts-ignore
-        token.value.referencedTokenId && token.value.referencedTokenId !== null && token.value.referencedTokenId !== undefined
-    )
-
-    // Add inline flag for @theme if it's the base selector and there are references
-    const themeDirective = selector === '@theme' && hasReferences ? '@theme inline' : selector
     content += `${themeDirective} {\n${cssVariables}}\n`
 
     // Add typography classes
@@ -413,9 +493,18 @@ export function generateStyleFiles(tokens: Array<Token>, tokenGroups: Array<Toke
         // Add debug information
         content += generateDebugInfo(themePath, tokensOfType.length, [], type)
 
+        // Give leaf color tokens a runtime-overridable :root alias, same as the single-file path,
+        // so the flag isn't a silent no-op just because of file structure. Scoped to the color
+        // file: it holds every eligible token, and this keeps the skip notice from repeating
+        // across all the other per-type files.
+        const rootIndirection = type === TokenType.color
+            ? generateRootIndirectionContent(themeDirective, tokensOfType, mappedTokens, tokenGroups)
+            : { content: '', ids: undefined }
+        content += rootIndirection.content
+
         // Generate CSS variables
         let cssVariables = ''
-        cssVariables += generateCSSVariables(tokensOfType, mappedTokens, tokenGroups, undefined, type)
+        cssVariables += generateCSSVariables(tokensOfType, mappedTokens, tokenGroups, undefined, type, rootIndirection.ids)
 
         // Add the CSS variables to the content
         content += `${themeDirective} {\n${cssVariables}}\n`

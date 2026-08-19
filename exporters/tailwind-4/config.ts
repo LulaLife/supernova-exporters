@@ -59,6 +59,37 @@ export type ExporterConfiguration = {
   cssSelector: string
   /** CSS selector pattern for themes, {theme} will be replaced with theme name */
   themeSelector: string
+  /**
+   * When enabled (and cssSelector resolves to `@theme`/`@theme inline`), every leaf color token
+   * (a color token with no referencedTokenId — i.e. a primitive palette value, not an alias) is
+   * additionally emitted as a raw value in a `:root` block under a distinct alias name (see
+   * `rootIndirectionPrefix`), and the `@theme` copy of that token becomes `var(--<alias>)`.
+   * That makes the whole color system runtime-overridable (e.g. per-tenant white-labeling)
+   * without touching alias/semantic tokens, which already chain through var() to these leaves.
+   *
+   * The alias is deliberately a DIFFERENT custom property name than the theme token. Pointing a
+   * theme token at itself (`--color-x: var(--color-x)`) also works in practice — Tailwind emits
+   * `@theme` into `@layer theme`, and an unlayered `:root` outranks it — but it relies on that
+   * layer precedence to break the tie, and silently resolves to an invalid value if the override
+   * ever ends up in the same layer. A distinct name means there is no tie to break at all, and
+   * matches the pattern Tailwind's own documentation recommends.
+   *
+   * Requires `useReferences` — with references off, alias/semantic tokens are baked to raw values
+   * and would not follow a runtime override, so the feature is skipped (and says so in a comment
+   * in the generated file).
+   *
+   * Also switches the OKLCH channel utility variables (opacity-composited colors in shadows/
+   * borders/gradients) for root-indirected leaves to a CSS Color 4 relative-color reference
+   * (`from var(--<alias>) l c h`) instead of a baked snapshot, so those track a runtime override
+   * too. Only applied for OKLCH color formats — `rgba()` has no equivalent `l c h` form.
+   */
+  rootIndirectionForColors: boolean
+  /**
+   * Prefix for the `:root` alias custom properties emitted by `rootIndirectionForColors`.
+   * `--<prefix>-<token-name>`, e.g. `ds` → `--ds-color-palette-brand-500`. Must be non-empty and
+   * must not collide with a Tailwind theme namespace; consumers override the alias, not the token.
+   */
+  rootIndirectionPrefix: string
   /** Controls how themes are exported in the CSS files */
   exportThemesAs: ThemeExportStyle
   /** When enabled, themed files will only include tokens that have different values from the base theme */

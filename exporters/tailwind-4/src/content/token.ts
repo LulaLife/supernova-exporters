@@ -26,6 +26,59 @@ export function isAllowedTokenType(tokenType: TokenType): boolean {
 }
 
 /**
+ * Whether root indirection is active at all. Requires the flag AND useReferences: with
+ * references off, alias/semantic tokens are baked to raw values, so overriding a leaf would
+ * change almost nothing that actually renders — the feature would look silently broken.
+ * @returns True if root indirection should be applied
+ */
+export function isRootIndirectionEnabled(): boolean {
+  return exportConfiguration.rootIndirectionForColors && exportConfiguration.useReferences
+}
+
+/**
+ * Checks whether a token is a "leaf" color token eligible for :root indirection —
+ * a color token with no referencedTokenId (a primitive palette value, not an alias).
+ * Alias/semantic color tokens (e.g. --color-action-primary-bg) already chain to these
+ * leaves via var() and don't need their own :root entry.
+ * @param token - The token to check
+ * @returns True if root indirection is active and this token is a leaf color token
+ */
+export function isRootIndirectedColorLeaf(token: Token): boolean {
+  if (!isRootIndirectionEnabled()) return false
+  if (token.tokenType !== TokenType.color) return false
+  // @ts-ignore
+  return !token.value.referencedTokenId
+}
+
+/**
+ * Builds the `:root` alias custom-property name for a token variable name.
+ * Deliberately a DIFFERENT name than the theme token, so the two never contend in the cascade.
+ * @param name - The token's own CSS variable name (without leading --)
+ * @returns The alias name (without leading --)
+ */
+export function rootIndirectionAliasName(name: string): string {
+  const prefix = (exportConfiguration.rootIndirectionPrefix || '').trim().replace(/^-+|-+$/g, '')
+  // An empty prefix would collapse the alias onto the token name itself, recreating the
+  // self-reference this option exists to avoid. Fall back to the documented default.
+  return `${prefix || 'ds'}-${name}`
+}
+
+/**
+ * Whether the configured color format supports CSS Color 4 relative color syntax
+ * (`oklch(from <color> l c h / <alpha>)`). The rgb/rgba branch of
+ * CSSHelper.handleColorWithCustomOpacity emits `rgba(<channels>, <alpha>)`, which has no
+ * valid `l c h` form — emitting one there produces CSS the browser drops entirely.
+ * @returns True if relative color syntax may be used
+ */
+export function supportsRelativeColorSyntax(): boolean {
+  return (
+    exportConfiguration.colorFormat === ColorFormat.oklch ||
+    exportConfiguration.colorFormat === ColorFormat.oklcha ||
+    exportConfiguration.colorFormat === ColorFormat.smartOklch
+  )
+}
+
+/**
  * Generates debug information for a token
  * @param token - The token to generate debug info for
  * @param indentString - The indentation string to use
@@ -120,15 +173,36 @@ function handleTypographyToken(token: Token, mappedTokens: Map<string, Token>, t
 }
 
 /**
+ * Root-indirection behavior for a single converted token. The two modes are the two halves of
+ * the same feature: `asRootAlias` writes the `:root` side (alias name, raw value), while
+ * `rootIndirectedIds` writes the `@theme` side (token name, pointing at the alias).
+ */
+export type ConvertedTokenOptions = {
+  /**
+   * Ids of leaf color tokens that got a `:root` alias. Those are emitted here as
+   * `var(--<alias>)` instead of their raw value, so the theme token tracks runtime overrides
+   * of the alias. Used for the `@theme` pass.
+   */
+  rootIndirectedIds?: Set<string>
+  /**
+   * Emit this token as its `:root` alias declaration instead: the alias name carrying the raw
+   * resolved value. Used for the `:root` pass.
+   */
+  asRootAlias?: boolean
+}
+
+/**
  * Converts a design token into its CSS custom property representation.
  * Handles formatting of the token value, references, and optional description comments.
- * 
+ *
  * @param token - The design token to convert
  * @param mappedTokens - Map of all tokens for resolving references
  * @param tokenGroups - Array of token groups for determining token hierarchy
+ * @param colorTokensNeedingOklch - Color token ids that need an OKLCH utility variable
+ * @param options - Root-indirection behavior; see ConvertedTokenOptions
  * @returns Formatted CSS custom property string with optional description comment or null if token type is not allowed
  */
-export function convertedToken(token: Token, mappedTokens: Map<string, Token>, tokenGroups: Array<TokenGroup>, colorTokensNeedingOklch?: Set<string>): string | null {
+export function convertedToken(token: Token, mappedTokens: Map<string, Token>, tokenGroups: Array<TokenGroup>, colorTokensNeedingOklch?: Set<string>, options?: ConvertedTokenOptions): string | null {
   // Skip tokens that are not allowed for Tailwind customization
   if (!isAllowedTokenType(token.tokenType)) {
     return null;
@@ -140,10 +214,15 @@ export function convertedToken(token: Token, mappedTokens: Map<string, Token>, t
   }
 
   // Generate the CSS variable name based on token properties and configuration
-  let name = tokenVariableName(token, tokenGroups)
+  const tokenName = tokenVariableName(token, tokenGroups)
+  // The :root pass emits the alias name; the @theme pass keeps the token's own name
+  let name = options?.asRootAlias ? rootIndirectionAliasName(tokenName) : tokenName
 
-  // Convert token value to CSS, handling references and formatting according to configuration
-  const value = CSSHelper.tokenToCSS(token, mappedTokens, {
+  // On the @theme side, a root-indirected token points at its :root alias rather than
+  // repeating the raw value — that indirection is what makes it overridable at runtime
+  const value = options?.rootIndirectedIds?.has(token.id)
+    ? `var(--${rootIndirectionAliasName(tokenName)})`
+    : CSSHelper.tokenToCSS(token, mappedTokens, {
     allowReferences: exportConfiguration.useReferences,
     decimals: exportConfiguration.colorPrecision,
     colorFormat: exportConfiguration.colorFormat,
@@ -191,8 +270,10 @@ export function convertedToken(token: Token, mappedTokens: Map<string, Token>, t
   // Add debug info
   output += generateDebugInfo(token, indentString)
 
-  // Add description if enabled
-  if (exportConfiguration.showDescriptions && token.description) {
+  // Add description if enabled. Skipped on the @theme pointer copy of a root-indirected token —
+  // the description already sits on the :root alias, and repeating it doubles the comment payload
+  // for every colour in the file without adding information.
+  if (exportConfiguration.showDescriptions && token.description && !options?.rootIndirectedIds?.has(token.id)) {
     output += `${indentString}/* ${token.description.trim()} */\n`
   }
 
@@ -461,15 +542,30 @@ export function getColorTokenOklchValue(token: Token): string {
  * 
  * @param token - The color token to generate OKLCH utility for
  * @param tokenGroups - Array of token groups for determining token hierarchy
+ * @param rootIndirectedIds - Ids of leaf color tokens that got a :root alias in THIS file; only
+ *   those may use the relative-color form, since only they have an alias to point at
  * @returns Formatted CSS custom property string for the OKLCH utility variable
  */
 export function generateOklchUtilityVariable(
   token: Token,
-  tokenGroups: Array<TokenGroup>
+  tokenGroups: Array<TokenGroup>,
+  rootIndirectedIds?: Set<string>
 ): string {
   const name = tokenVariableName(token, tokenGroups)
   const oklchName = `oklch-${name}`
-  const oklchValue = getColorTokenOklchValue(token)
+  // For a root-indirected leaf, derive the channels from the live alias at runtime (CSS Color 4
+  // relative color syntax: `oklch(from var(--<alias>) l c h / <alpha>)`) instead of baking today's
+  // snapshot — otherwise an override would be silently ignored wherever the colour is used with a
+  // custom opacity (shadows, borders, gradients).
+  //
+  // Deliberately gated on the caller's own root-indirection set, not on the config flag alone:
+  // analyzeTokensForOklchUtilities collects whatever colour token a shadow or border references,
+  // which is routinely an ALIAS token, and aliases get no :root entry. Pointing at a non-existent
+  // alias would leave the var undefined and drop the shadow entirely.
+  const useRelativeColor = (rootIndirectedIds?.has(token.id) ?? false) && supportsRelativeColorSyntax()
+  const oklchValue = useRelativeColor
+    ? `from var(--${rootIndirectionAliasName(name)}) l c h`
+    : getColorTokenOklchValue(token)
   const indentString = GeneralHelper.indent(exportConfiguration.indent)
   if (exportConfiguration.showDescriptions && token.description) {
     return `${indentString}/* OKLCH utility for ${token.description.trim()} */\n${indentString}--${oklchName}: ${oklchValue};`

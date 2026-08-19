@@ -18,6 +18,7 @@ This exporter package takes your design system tokens and converts them to Tailw
 - **Reset rules:** Can generate reset rules to disable default Tailwind styles, either in a separate file or within the main CSS file.
 - **Typography classes:** Can generate typography classes in @layer components using typography tokens.
 - **Component classes (LulaLife fork):** Can generate component classes (e.g. `.alert`, `.button-primary`, `.button-primary:hover`) in @layer components from configured component token groups. See _Component classes_ below.
+- **Runtime-overridable colours (LulaLife fork):** Can emit leaf colour tokens behind a `:root` alias so consumers can re-theme the colour system at runtime (per-tenant white-labeling). See _Runtime-overridable colour leaves_ below.
 - **Debug information:** Can include debug information in the generated files to help with troubleshooting.
 
 ## Component classes (LulaLife fork)
@@ -101,6 +102,65 @@ Leaves not in this map are skipped (no class emission). A few meta leaves like `
 
 - Only the `singleFile` file structure is currently wired up for component classes. In `separateByType` mode, component classes are not emitted (component tokens span multiple types like spacing + radius + color).
 - Variant detection is driven by the CSS variable name pattern (`-<component>-<variant>-<property>` or `-<component>-<property>-<state>`), not the Supernova group hierarchy. This works because the exporter's naming helper already collapses the group path into the variable name.
+
+## Runtime-overridable colour leaves (LulaLife fork)
+
+By default every colour value is baked into the `@theme` block, so nothing downstream can change it — which blocks per-tenant white-labeling. This fork adds an opt-in indirection that makes the whole colour system re-themeable at runtime.
+
+### Configuration
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `rootIndirectionForColors` | `false` | Emit leaf colour tokens into a `:root` block under a distinct alias, and point the `@theme` token at that alias. |
+| `rootIndirectionPrefix` | `"ds"` | Prefix for the alias custom properties: `--<prefix>-<token-name>`. |
+
+### How it works
+
+Only **leaf** colour tokens (primitive palette values with no `referencedTokenId`) get an alias. Alias/semantic tokens already chain to those leaves via `var()`, so they follow automatically:
+
+```css
+:root {
+  --ds-color-palette-brand-500: oklch(55.28% 0.209 259.7);
+}
+
+@theme inline {
+  --color-palette-brand-500: var(--ds-color-palette-brand-500);
+  --color-action-primary-bg: var(--color-palette-brand-500);  /* unchanged — follows the leaf */
+}
+```
+
+A consumer re-themes by overriding the alias only:
+
+```css
+:root { --ds-color-palette-brand-500: oklch(62.8% 0.2577 29.23); }
+```
+
+The alias is deliberately a **different** custom property than the theme token. Pointing a theme token at itself (`--color-x: var(--color-x)`) also works in practice — Tailwind emits `@theme` into `@layer theme`, and an unlayered `:root` outranks it — but it depends on that layer precedence to break the tie, and resolves to an invalid value (rendering the colour transparent, with no build error) if the two ever land in the same layer. A distinct name means there is no tie to break.
+
+### Where overrides may live
+
+Because the generated `:root` block is **unlayered**, it outranks any declaration inside a cascade layer. An override must therefore be either:
+
+- unlayered, and loaded **after** the generated stylesheet, or
+- an inline style on the root element (`document.documentElement.style.setProperty(...)`), which beats everything.
+
+An override placed inside a cascade layer is silently ignored. If you need tenant CSS in a layer, import the design system into a layer too.
+
+### Custom-opacity colours
+
+Colours composited with a custom opacity (shadows, borders, gradients) go through `--oklch-*` channel variables. For root-indirected leaves these use CSS Color 4 relative colour syntax so they track overrides:
+
+```css
+--oklch-color-palette-brand-500: from var(--ds-color-palette-brand-500) l c h;
+/* consumed as: oklch(var(--oklch-color-palette-brand-500) / 0.2) */
+```
+
+Relative colour syntax requires Chrome/Edge 131+, Firefox 133+, Safari 18+ (~91% global). It is applied only for OKLCH colour formats — `rgba()` has no equivalent `l c h` form.
+
+### Limitations
+
+- Requires `useReferences`. With references off, semantic tokens are baked to raw values and would not follow an override, so the feature is skipped and says so in a comment in the generated file.
+- Only applies when the base selector resolves to `@theme`/`@theme inline`. Theme files (`.theme-{theme}`) are unaffected — the base file owns the alias block.
 
 ## Example of Output
 
