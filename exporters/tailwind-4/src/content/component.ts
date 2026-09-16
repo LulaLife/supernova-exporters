@@ -1,6 +1,6 @@
 import { Token, TokenGroup } from "@supernovaio/sdk-exporters"
 import { exportConfiguration } from ".."
-import { tokenVariableName } from "./token"
+import { applyFindReplace, tokenVariableName } from "./token"
 
 /**
  * Component-level @layer components emission.
@@ -9,10 +9,24 @@ import { tokenVariableName } from "./token"
  * to CSS classes like `.alert-success { background-color: var(--color-alert-success-bg) }`
  * inside `@layer components { ... }`.
  *
- * Detection is driven by variable-name pattern: for each configured component name (e.g. "alert"),
- * we find every token whose CSS variable name contains `-<component>-` (or starts with `<component>-`
- * when the token has no type prefix). The tail after the component segment is then parsed into
- * `<variant>-<property>-<state>` using the mapping tables below.
+ * Detection is driven by a token's own DOMAIN PATH — its ancestor group names plus its own name
+ * (`token.tokenPath` + `token.name`), the same raw material `tokenVariableName` itself builds a
+ * name from, but read here BEFORE any prefix or naming-scheme formatting is applied. For each
+ * configured component name (e.g. "alert"), we require it to be the FIRST segment(s) of that
+ * domain path — e.g. domain path `["alert", "success", "bg"]` matches component `alert` (tail
+ * `success-bg`), but `["job-tree", "badge", "bg"]` (a "badge" sub-group nested under an unrelated
+ * "job-tree" group) does not match component `badge` — its first segment is `job-tree`, not
+ * `badge`. The tail after the component segment is then parsed into `<variant>-<property>-<state>`
+ * using the mapping tables below.
+ *
+ * Matching on the pre-prefix domain path (rather than the final flattened variable name) is
+ * deliberate: the flattened name's own prefix varies by token type and by config — `color`,
+ * `font-weight` (two segments), or an entirely different scheme when `useColorUtilityPrefixes` is
+ * on (`bg-color-`, `text-color-`, …). Anchoring against a *guessed* prefix length broke every
+ * color-derived class the moment `useColorUtilityPrefixes` was enabled (color tokens never even
+ * reached their component's segment, since the guessed anchor pointed at the wrong offset).
+ * Reading the domain path directly sidesteps prefix formatting entirely, so it holds regardless of
+ * which naming scheme produced the final variable name.
  */
 
 /**
@@ -141,17 +155,52 @@ function parseTail(tail: string): ParsedTail | null {
 }
 
 /**
- * Finds the portion of a variable name after `-<componentName>-` (or the start, if the name
- * begins with `<componentName>-`). Returns null if the component is not found in the name.
+ * A token's domain path — its ancestor group names plus its own name — split into lowercase
+ * word segments, BEFORE any type prefix is applied. This is the same raw material
+ * `tokenVariableName` itself starts from (`token.tokenPath` + `token.name`; see
+ * `generateDebugInfo`'s identical `[...tokenPath, token.name]` construction in `token.ts`), read
+ * here directly so component matching never has to know or guess how the final variable name's
+ * prefix was built.
+ *
+ * `findReplace` IS applied here, though — unlike the prefix, it can rename the domain itself.
+ * E.g. this design system's own `"-table-": "-lula-table-"` rule means the "Table" Figma group's
+ * tokens are meant to be matched as component `lula-table` (the configured name), not `table` —
+ * skipping this step would silently stop matching that component's real tokens the moment this
+ * fix landed. Applying it to the domain-only string is safe regardless of `findReplaceTiming`:
+ * every OTHER configured pattern here (`--z-`, `--duration-`, `--text-body-`, …) is anchored to a
+ * type prefix, which never appears in this domain-only string in the first place, so those are a
+ * no-op here rather than a source of drift.
  */
-function extractTail(variableName: string, componentName: string): string | null {
-  const name = variableName.toLowerCase()
+function tokenDomainSegments(token: Token): string[] {
+  const path = ((token as { tokenPath?: string[] }).tokenPath || []) as string[]
+  const rawSegments = [...path, token.name]
+    .flatMap((fragment) => String(fragment).split(/[\s_-]+/))
+    .map((segment) => segment.toLowerCase())
+    .filter((segment) => segment.length > 0)
+
+  const replaced = applyFindReplace(rawSegments.join("-"), exportConfiguration.findReplace)
+  return replaced
+    .split("-")
+    .map((segment) => segment.toLowerCase())
+    .filter((segment) => segment.length > 0)
+}
+
+/**
+ * Finds the portion of a token's domain path after `<componentName>`, but ONLY when
+ * `componentName` is the run of segments at the very START of that domain path — e.g. for
+ * `componentName = "badge"`, domain path `["badge", "neutral", "bg"]` matches (tail
+ * `neutral-bg`) but `["job-tree", "badge", "bg"]` does not (its first segment is `job-tree`, part
+ * of the unrelated `job-tree` group, not `badge`).
+ *
+ * Returns null if the component does not occupy that leading run of segments.
+ */
+function extractTail(domainSegments: string[], componentName: string): string | null {
   const comp = componentName.toLowerCase()
-  const marker = "-" + comp + "-"
-  const idx = name.indexOf(marker)
-  if (idx !== -1) return name.slice(idx + marker.length)
-  if (name.startsWith(comp + "-")) return name.slice(comp.length + 1)
-  return null
+  const compSegments = comp.split("-")
+
+  if (domainSegments.length < compSegments.length) return null
+  if (domainSegments.slice(0, compSegments.length).join("-") !== comp) return null
+  return domainSegments.slice(compSegments.length).join("-")
 }
 
 /**
@@ -182,12 +231,16 @@ export function generateComponentClasses(tokens: Array<Token>, tokenGroups: Arra
   // Track declaration order so we can dedupe by property, keeping the first occurrence per selector.
   const seenPropsBySelector = new Map<string, Set<string>>()
 
-  // Pre-compute variable names once per token.
-  const resolvedNames = tokens.map((t) => ({ token: t, varName: tokenVariableName(t, tokenGroups) }))
+  // Pre-compute variable names and domain-path segments once per token.
+  const resolvedNames = tokens.map((t) => ({
+    token: t,
+    varName: tokenVariableName(t, tokenGroups),
+    domainSegments: tokenDomainSegments(t),
+  }))
 
   for (const componentName of components) {
-    for (const { token, varName } of resolvedNames) {
-      const tail = extractTail(varName, componentName)
+    for (const { token, varName, domainSegments } of resolvedNames) {
+      const tail = extractTail(domainSegments, componentName)
       if (tail === null) continue
 
       const parsed = parseTail(tail)

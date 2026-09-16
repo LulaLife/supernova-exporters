@@ -319,7 +319,7 @@ function normalizeForTailwindConfig(name: string): string {
  * @param findReplace Record of find/replace patterns
  * @returns The name with all replacements applied
  */
-function applyFindReplace(name: string, findReplace?: Record<string, string>): string {
+export function applyFindReplace(name: string, findReplace?: Record<string, string>): string {
   if (!findReplace || Object.keys(findReplace).length === 0) return name;
   
   // Add -- prefix to match how CSS variables appear, so users can use patterns like "--spacing"
