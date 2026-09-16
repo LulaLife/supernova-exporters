@@ -60,7 +60,7 @@
     {
         "key": "useColorUtilityPrefixes",
         "type": "boolean",
-        "default": false,
+        "default": true,
         "title": "Use color utility prefixes",
         "description": "Enable specific prefixes for different color utilities. Only applies to color tokens.",
         "category": "Colors"
@@ -120,7 +120,7 @@
     {
         "key": "generateComponentClasses",
         "type": "boolean",
-        "default": true,
+        "default": false,
         "title": "Generate component classes",
         "description": "Generate component classes (e.g. .alert, .button-primary) in @layer components from the component token groups listed below. States (hover, pressed, disabled, focus) are emitted as CSS pseudo-classes (:hover, :active, :disabled, :focus-visible).",
         "category": "Components"
@@ -128,15 +128,15 @@
     {
         "key": "componentGroupsToGenerate",
         "type": "string",
-        "default": "button,alert,badge,tag,field,switch,tooltip,chip,modal,spinner,datepicker,tab,radio,checkbox,avatar,lula-table,activity-log,navigation,notification,stepper,segmented-control,card,tabs,chat,navbar,menu,empty-state,toast,breadcrumb,rating,divider,skeleton,file-upload,job-tree",
+        "default": "alert,button,badge,field,switch,tooltip",
         "title": "Component groups to emit",
-        "description": "Comma-separated list of component group names whose tokens should be emitted as @layer components classes. Each name must be the leading segment(s) of a token's own domain path (its Figma group ancestry) to match — a token nested under a different, unrelated group is never absorbed just because that group's name happens to contain a configured component name.",
+        "description": "Comma-separated list of component group names whose tokens should be emitted as @layer components classes. Each name is matched against tokens whose variable name contains `-<name>-` (case-insensitive).",
         "category": "Components"
     },
     {
         "key": "useTailwindUtilityAPI",
         "type": "boolean",
-        "default": true,
+        "default": false,
         "title": "Emit size variants via @utility",
         "description": "When enabled, size variants (sm/md/lg) of component classes are emitted as @utility blocks instead of @layer components, making them usable with Tailwind variants like `md:radio-size-sm` or `hover:radio-size-md`. All other variants (color/style variants, hover/pressed/disabled/focus states) are unaffected and still emitted in @layer components.",
         "category": "Components"
@@ -551,7 +551,7 @@
     {
         "key": "rootIndirectionForColors",
         "type": "boolean",
-        "default": true,
+        "default": false,
         "title": "Runtime-overridable color leaves",
         "description": "When the base selector resolves to @theme/@theme inline, emit every leaf color token (no referencedTokenId — i.e. a primitive palette value) as a raw value in a :root block under a distinct alias name, and point the theme token at it via var(). Lets a consumer re-theme at runtime (e.g. per-tenant white-labeling) by overriding the alias, without touching alias/semantic tokens (they already chain to these leaves via var()). Requires 'Use token references'; skipped with an explanatory comment if that is off. Also switches the OKLCH channel utility variables (custom-opacity colors in shadows/borders/gradients) for those leaves to CSS Color 4 relative color syntax so they track the override too (OKLCH color formats only). Note: overrides must be unlayered or set as an inline style on the root element — an override inside a cascade layer loses to the unlayered :root block.",
         "category": "CSS selectors"
@@ -581,28 +581,12 @@
         "title": "Find and replace",
         "description": "Replace strings in token paths and names. Each key is the string to find, and its value is the string to replace it with.",
         "category": "Find and replace",
-        "default": {
-            "--z-": "--z-index-",
-            "-table-": "-lula-table-",
-            "--duration-": "--transition-duration-",
-            "--text-code": "--typography-code",
-            "--text-body-": "--typography-body-",
-            "--text-label-": "--typography-label-",
-            "--font-family-": "--font-",
-            "--text-button-": "--typography-button-",
-            "--text-caption": "--typography-caption",
-            "--border-width-": "--border-",
-            "--text-display-": "--typography-display-",
-            "--text-heading-": "--typography-heading-",
-            "@theme inline {": "@theme {",
-            "--text-font-size-": "--text-",
-            "--font-weight-font-weight-": "--font-weight-"
-        }
+        "default": {}
     },
     {
         "key": "findReplaceTiming",
         "type": "enum",
-        "default": "afterPrefix",
+        "default": "beforePrefix",
         "title": "Apply find/replace",
         "description": "Control when find/replace is applied relative to token type prefixes.",
         "category": "Find and replace",
