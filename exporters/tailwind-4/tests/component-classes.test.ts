@@ -317,4 +317,19 @@ describe("component classes — real production config (from the live Supernova 
     expect(css).not.toMatch(/\.badge \{[^}]*\}/)
     expect(css).not.toMatch(/\.badge-request/)
   })
+
+  test("a Figma group nested under a same-named parent ('Table' > 'Table' > gap) does not double up in the selector", () => {
+    // Real bug, caught in review of PR #393: the shipped fix emitted `.lula-table-table`
+    // for a token whose real variable name is `--spacing-lula-table-gap` (one "table") —
+    // tokenVariableName's own removeDuplicateFragments collapses the adjacent "Table"/"Table"
+    // pair; domain matching must collapse the same pair or it sees a segment the real name
+    // already silently dropped.
+    setConfig(productionConfig)
+    const css = generateComponentClasses(
+      [nestedColorToken("c-table-table-gap", ["Table", "Table"], "gap")],
+      tokenGroups
+    )
+    expect(css).toMatch(/\.lula-table \{\s*[a-z-]+: var\(--[a-z0-9-]+\);\s*\}/)
+    expect(css).not.toMatch(/\.lula-table-table/)
+  })
 })
