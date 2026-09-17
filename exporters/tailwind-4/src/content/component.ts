@@ -170,6 +170,16 @@ function parseTail(tail: string): ParsedTail | null {
  * every OTHER configured pattern here (`--z-`, `--duration-`, `--text-body-`, …) is anchored to a
  * type prefix, which never appears in this domain-only string in the first place, so those are a
  * no-op here rather than a source of drift.
+ *
+ * Adjacent duplicate segments are collapsed BEFORE find-replace runs — a Figma group nested
+ * under a same-named parent (e.g. a "Table" root containing its own "Table" sub-group for the
+ * literal `<table>` element, distinct from its Head/Row/Cell siblings) produces a raw domain like
+ * `["table", "table", "gap"]`. `NamingHelper.codeSafeVariableName`'s own `removeDuplicateFragments`
+ * (on by default, applied to the real variable name) already collapses that pair — verified
+ * empirically: the real token name is `spacing-lula-table-gap` (one "table"), never
+ * `spacing-lula-table-table-gap`. Without doing the same collapse here, domain matching sees the
+ * extra segment the real name already silently drops and emits a selector like
+ * `.lula-table-table` that doesn't correspond to anything a consumer would ever write.
  */
 function tokenDomainSegments(token: Token): string[] {
   const path = ((token as { tokenPath?: string[] }).tokenPath || []) as string[]
@@ -177,6 +187,7 @@ function tokenDomainSegments(token: Token): string[] {
     .flatMap((fragment) => String(fragment).split(/[\s_-]+/))
     .map((segment) => segment.toLowerCase())
     .filter((segment) => segment.length > 0)
+    .filter((segment, index, all) => index === 0 || segment !== all[index - 1])
 
   const replaced = applyFindReplace(rawSegments.join("-"), exportConfiguration.findReplace)
   return replaced
