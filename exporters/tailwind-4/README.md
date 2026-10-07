@@ -16,7 +16,7 @@ This exporter package takes your design system tokens and converts them to Tailw
 - **Comment support:** Can include descriptions for each token as code comments, if provided. Can also provide a disclaimer at the top of each file to prevent people from tinkering with the generated code manually.
 - **File organization:** Can generate output in various ways, such as separate files for each token type, or a single configuration file.
 - **Reset rules:** Can generate reset rules to disable default Tailwind styles, either in a separate file or within the main CSS file.
-- **Typography classes:** Can generate typography classes in @layer components using typography tokens.
+- **Typography classes:** Can generate typography classes in @layer components using typography tokens (or as `@utility` blocks when `useTailwindUtilityAPI` is enabled, so they work with variants like `md:`).
 - **Component classes (LulaLife fork):** Can generate component classes (e.g. `.alert`, `.button-primary`, `.button-primary:hover`) in @layer components from configured component token groups. See _Component classes_ below.
 - **Runtime-overridable colours (LulaLife fork):** Can emit leaf colour tokens behind a `:root` alias so consumers can re-theme the colour system at runtime (per-tenant white-labeling). See _Runtime-overridable colour leaves_ below.
 - **Debug information:** Can include debug information in the generated files to help with troubleshooting.
@@ -31,7 +31,7 @@ This fork adds an optional `@layer components` emission path for component-level
 | --- | --- | --- |
 | `generateComponentClasses` | `false` | Enable component-class emission. |
 | `componentGroupsToGenerate` | `"alert,button,badge,field,switch,tooltip"` | Comma-separated list of component names. Each name matches tokens whose CSS variable name contains `-<name>-` (case-insensitive). |
-| `useTailwindUtilityAPI` | `false` | Emit size variants (`sm`/`md`/`lg`) as `@utility` blocks instead of `@layer components`, so they can be combined with Tailwind variants like `md:` and `hover:` (e.g. `className="radio-size-md md:radio-size-sm"`). All other variants (color/style, hover/pressed/disabled/focus states) are unaffected. See _Utility API size variants_ below. |
+| `useTailwindUtilityAPI` | `false` | Emit size variants (`sm`/`md`/`lg`) and typography classes as `@utility` blocks instead of `@layer components`, so they can be combined with Tailwind variants like `md:` and `hover:` (e.g. `className="radio-size-md md:radio-size-sm"`, `className="mobile-heading-sm md:desktop-heading-sm"`). All other variants (color/style, hover/pressed/disabled/focus states) are unaffected. See _Utility API size variants_ below. |
 
 ### How it works
 
@@ -93,6 +93,29 @@ This makes the classes real Tailwind utilities, so they can be combined with any
 ```html
 <input type="radio" className="radio-size-md md:radio-size-sm" />
 ```
+
+#### Typography classes
+
+The same flag applies to typography classes (`generateTypographyClasses`). Each one is emitted as a top-level `@utility` block with exactly the declarations it had in `@layer components`, so a mobile/desktop pair composes across a breakpoint:
+
+```css
+@utility desktop-heading-sm {
+  font-family: "Inter";
+  font-size: var(--text-desktop-heading-sm);
+  font-weight: var(--text-desktop-heading-sm--font-weight);
+  line-height: var(--text-desktop-heading-sm--line-height);
+  /* ... */
+}
+```
+
+```html
+<h3 className="mobile-heading-sm md:desktop-heading-sm">...</h3>
+```
+
+Two consumer-visible consequences of moving from `@layer components` to `@utility`:
+
+- **Classes are only emitted when Tailwind sees them.** A `@layer components` rule always ships; an `@utility` is generated only for class names found in scanned sources (`@source`). Class names assembled at runtime (`` `typography-${size}` ``) or used in files outside the scanned globs produce no CSS.
+- **Cascade layer moves from `components` to `utilities`.** Single-property utilities next to the class (`font-bold`, `tracking-wide`, `-mb-1`) still win, since Tailwind sorts multi-property utilities before them. A typography class now beats a `@layer components` bundle class (e.g. a component's own `font-size`) on the same element, where previously the later component rule won.
 
 Everything else — color/style variants (e.g. `.button-primary`) and pseudo-state suffixes (`:hover`, `:active`, `:disabled`, `:focus-visible`, `::placeholder`) — is unaffected and keeps emitting into `@layer components` as before, since those aren't meant to be toggled per-breakpoint.
 
@@ -287,7 +310,7 @@ Here is a list of all the configuration options this exporter provides:
 - **disableTrackingDefaults:** When enabled, resets all letter spacing token values to initial state.
 
 ### Typography
-- **generateTypographyClasses:** When enabled, generates typography classes in @layer components using typography tokens.
+- **generateTypographyClasses:** When enabled, generates typography classes in @layer components using typography tokens. With `useTailwindUtilityAPI` enabled they are emitted as top-level `@utility` blocks instead — see _Utility API size variants_ → _Typography classes_.
 - **forceRemUnit:** When enabled, converts pixel values to rem units.
 - **remBase:** Base pixel value for rem conversion (default: 16).
 
