@@ -7,15 +7,18 @@ import { tokenVariableName } from "./token"
  * Generates a CSS class for a typography token
  * @param token - The typography token to generate a class for
  * @param tokenGroups - Array of token groups for determining token hierarchy
+ * @param asUtility - Emit a top-level `@utility <name> { ... }` block instead of a `.name { ... }` rule
+ *   for `@layer components`, so Tailwind can compound it with variants (`md:`, `hover:`, ...)
  * @returns Formatted CSS class string or null if token is not a typography token
  */
-export function generateTypographyClass(token: Token, tokenGroups: Array<TokenGroup>): string | null {
+export function generateTypographyClass(token: Token, tokenGroups: Array<TokenGroup>, asUtility = false): string | null {
   // Skip if not a typography token
   if (token.tokenType !== TokenType.typography) {
     return null
   }
 
-  const indentString = "  " // 2 spaces for layer content
+  // @utility blocks are top-level; plain classes are nested in @layer components (2 spaces)
+  const indentString = asUtility ? "" : "  "
   let output = ""
 
   // Add debug info if enabled
@@ -64,7 +67,7 @@ export function generateTypographyClass(token: Token, tokenGroups: Array<TokenGr
   }
 
   // Generate the class with all typography properties
-  output += `${indentString}.${className} {\n`
+  output += asUtility ? `@utility ${className} {\n` : `${indentString}.${className} {\n`
   
   // Font family
   if (typographyValue.fontFamily) {

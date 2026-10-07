@@ -229,14 +229,17 @@ function generateTypographyContent(tokens: Array<Token>, tokenGroups: Array<Toke
     const typographyTokens = tokens.filter(token => token.tokenType === TokenType.typography)
     if (typographyTokens.length === 0) return ''
     
-    let content = '\n@layer components {\n'
+    // With the utility API each class becomes a top-level @utility, so it composes with Tailwind
+    // variants (`mobile-heading-sm md:desktop-heading-sm`) — plain @layer components classes can't.
+    const asUtility = exportConfiguration.useTailwindUtilityAPI
+    let content = asUtility ? '' : '\n@layer components {\n'
     typographyTokens.forEach(token => {
-        const classContent = generateTypographyClass(token, tokenGroups)
+        const classContent = generateTypographyClass(token, tokenGroups, asUtility)
         if (classContent) {
-            content += classContent
+            content += asUtility ? `\n${classContent}` : classContent
         }
     })
-    content += '}\n'
+    if (!asUtility) content += '}\n'
     
     return content
 }
