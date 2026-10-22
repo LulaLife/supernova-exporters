@@ -333,3 +333,37 @@ describe("component classes — real production config (from the live Supernova 
     expect(css).not.toMatch(/\.lula-table-table/)
   })
 })
+
+describe("component classes — text vs icon both map to `color`", () => {
+  // `.field` label/typed text inherits the class's `color`; icons are coloured explicitly by the
+  // component. Real regression: once tokens were emitted alphabetically, `field-icon` sorted
+  // before `field-text` and won, turning every Input/Textarea/Select's typed text grey.
+  const fieldColorTokens = [
+    colorToken("field-icon"),
+    colorToken("field-text"),
+    colorToken("field-icon-disabled"),
+    colorToken("field-text-disabled"),
+  ]
+
+  test("the -text token wins over the -icon token, whatever order they arrive in", () => {
+    for (const tokens of [fieldColorTokens, [...fieldColorTokens].reverse()]) {
+      const css = generateComponentClasses(tokens, tokenGroups)
+      expect(css).toContain("color: var(--color-field-text);")
+      expect(css).toContain("color: var(--color-field-text-disabled);")
+      expect(css).not.toContain("color: var(--color-field-icon);")
+      expect(css).not.toContain("color: var(--color-field-icon-disabled);")
+    }
+  })
+
+  test("the winning -text declaration keeps the slot the property first took", () => {
+    const css = generateComponentClasses([colorToken("field-icon"), colorToken("field-bg"), colorToken("field-text")], tokenGroups)
+    const block = css.slice(css.indexOf(".field {"), css.indexOf("}", css.indexOf(".field {")))
+    expect(block.indexOf("color: var(--color-field-text)")).toBeLessThan(block.indexOf("background-color"))
+    expect(block.match(/(^|\s)color:/g)).toHaveLength(1)
+  })
+
+  test("an -icon token with no -text sibling is still emitted", () => {
+    const css = generateComponentClasses([colorToken("alert-success-icon")], tokenGroups)
+    expect(css).toContain("color: var(--color-alert-success-icon);")
+  })
+})

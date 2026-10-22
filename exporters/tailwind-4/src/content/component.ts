@@ -83,6 +83,15 @@ const STATE_SUFFIX_TO_PSEUDO: Record<string, string> = {
  */
 const SKIP_LEAVES = new Set(["padding-text-y", "padding-text-x", "label-gap"])
 
+/**
+ * Leaves that only supply their CSS property when no other leaf on the same selector does.
+ * `text` and `icon` both map to `color`; a component class's `color` is what its label text
+ * inherits, and icons are coloured explicitly by the component (`text-<component>-icon`), so
+ * `-text` must win. Without this the winner depended on token order — when that order changed,
+ * `.field` typed text and `.menu-item` labels silently switched to the (lighter) icon colour.
+ */
+const FALLBACK_LEAVES = new Set(["icon"])
+
 /** Trailing variant keywords treated as Tailwind-breakpoint-style size variants (e.g. `size-md`, `radio-lg`). */
 const SIZE_VARIANT_KEYWORDS = new Set(["sm", "md", "lg"])
 
@@ -104,6 +113,8 @@ interface ParsedTail {
   property: string
   /** CSS pseudo-class (with leading colon) or empty string for default state. */
   state: string
+  /** The LEAF_TO_CSS_PROPERTY key that matched (e.g. "text", "icon", "padding-x"). */
+  leaf: string
 }
 
 /**
@@ -140,13 +151,14 @@ function parseTail(tail: string): ParsedTail | null {
   const propKeys = Object.keys(LEAF_TO_CSS_PROPERTY).sort((a, b) => b.length - a.length)
   for (const propKey of propKeys) {
     if (working === propKey) {
-      return { variant: "", property: LEAF_TO_CSS_PROPERTY[propKey], state }
+      return { variant: "", property: LEAF_TO_CSS_PROPERTY[propKey], state, leaf: propKey }
     }
     if (working.endsWith("-" + propKey)) {
       return {
         variant: working.slice(0, -(propKey.length + 1)),
         property: LEAF_TO_CSS_PROPERTY[propKey],
         state,
+        leaf: propKey,
       }
     }
   }
@@ -239,8 +251,9 @@ export function generateComponentClasses(tokens: Array<Token>, tokenGroups: Arra
   const classMap = new Map<string, string[]>()
   // Size-variant (sm/md/lg) selectors promoted to @utility so they work with Tailwind variants (md:, hover:, etc.)
   const utilityMap = new Map<string, string[]>()
-  // Track declaration order so we can dedupe by property, keeping the first occurrence per selector.
-  const seenPropsBySelector = new Map<string, Set<string>>()
+  // Per selector, which token currently supplies each CSS property — so a later, preferred leaf
+  // (see FALLBACK_LEAVES) can replace it in place without depending on token order.
+  const winnersBySelector = new Map<string, Map<string, { index: number; fallback: boolean; varName: string }>>()
 
   // Pre-compute variable names and domain-path segments once per token.
   const resolvedNames = tokens.map((t) => ({
@@ -262,15 +275,6 @@ export function generateComponentClasses(tokens: Array<Token>, tokenGroups: Arra
 
       const declaration = `${parsed.property}: var(--${varName});`
 
-      let seen = seenPropsBySelector.get(selector)
-      if (!seen) {
-        seen = new Set<string>()
-        seenPropsBySelector.set(selector, seen)
-      }
-      // Skip if this CSS property is already set on this selector (preserves first-wins ordering).
-      if (seen.has(parsed.property)) continue
-      seen.add(parsed.property)
-
       // Size variants (sm/md/lg) go to @utility so they compose with Tailwind variants; states never promote.
       const promoteToUtility =
         exportConfiguration.useTailwindUtilityAPI && parsed.state === "" && isSizeVariant(parsed.variant)
@@ -281,7 +285,28 @@ export function generateComponentClasses(tokens: Array<Token>, tokenGroups: Arra
         decls = []
         targetMap.set(selector, decls)
       }
-      decls.push(declaration)
+
+      let winners = winnersBySelector.get(selector)
+      if (!winners) {
+        winners = new Map()
+        winnersBySelector.set(selector, winners)
+      }
+
+      // One declaration per CSS property per selector. A non-fallback leaf beats a fallback one;
+      // otherwise the alphabetically-first variable name wins, so the result never depends on
+      // the order tokens arrive in.
+      const fallback = FALLBACK_LEAVES.has(parsed.leaf)
+      const current = winners.get(parsed.property)
+      if (!current) {
+        winners.set(parsed.property, { index: decls.length, fallback, varName })
+        decls.push(declaration)
+        continue
+      }
+      const replaces = current.fallback !== fallback ? current.fallback : varName < current.varName
+      if (replaces) {
+        decls[current.index] = declaration
+        winners.set(parsed.property, { index: current.index, fallback, varName })
+      }
     }
   }
 
