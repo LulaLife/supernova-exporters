@@ -31,7 +31,7 @@ export const tokenGroups: Array<TokenGroup> = [
  * A raw ("leaf") color value — no referencedTokenId, so it is a primitive palette value.
  * These are the tokens root indirection targets.
  */
-const rawColor = (r: number, g: number, b: number, opacity = 1): ColorTokenValue => ({
+export const rawColor = (r: number, g: number, b: number, opacity = 1): ColorTokenValue => ({
   color: { r, g, b, referencedTokenId: null },
   opacity: { measure: opacity, unit: Unit.raw, referencedTokenId: null },
   referencedTokenId: null,
@@ -47,7 +47,7 @@ const aliasColor = (refId: string): ColorTokenValue => ({
   referencedTokenId: refId,
 })
 
-const makeColor = (id: string, name: string, value: ColorTokenValue, description = ""): ColorToken =>
+export const makeColor = (id: string, name: string, value: ColorTokenValue, description = ""): ColorToken =>
   ({
     id,
     idInVersion: id,
