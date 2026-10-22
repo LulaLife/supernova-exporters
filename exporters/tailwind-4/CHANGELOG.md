@@ -11,6 +11,9 @@ All notable changes to this project will be documented in this file.
 - Test suite for this exporter (`npm test`), including fixtures for the custom-opacity shadow path that previously had no coverage.
 - Component-class emission inside `@layer components` for component-grouped tokens (alert, button, badge, etc.). Controlled by two new settings: `generateComponentClasses` (default `false`) and `componentGroupsToGenerate` (default `"alert,button,badge,field,switch,tooltip"`). State suffixes (`hover`, `pressed`, `disabled`, `focus`, `placeholder`) are emitted as CSS pseudo-classes (`:hover`, `:active`, `:disabled`, `:focus-visible`, `::placeholder`). See the README _Component classes_ section for details.
 
+### Fixed
+- Deterministic output order: tokens are now emitted sorted by token type, then by generated variable name (number-aware, so `brand-50` < `brand-100` < `brand-500`). Previously they were emitted in the order Supernova's API returned them, which shifts when tokens are edited — so every export reshuffled hundreds of unchanged declarations and buried the real changes in the PR diff. Applies to `@theme` variables, the `:root` alias block, OKLCH channel variables and typography classes. Expect one large reorder-only diff on the first export after this lands; after that, exports diff only on real token changes.
+
 ## [1.1.1] - 2025-09-10
 - Fix spacing token output: generate `--spacing-*` instead of `--size-*` for sizing. Thanks @mickaelnijean for contribution!
 

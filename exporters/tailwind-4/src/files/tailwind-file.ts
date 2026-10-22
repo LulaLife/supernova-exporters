@@ -7,7 +7,7 @@ import { FileHelper, ThemeHelper, GeneralHelper } from "@supernovaio/export-util
 import { OutputTextFile, Token, TokenGroup, TokenType, TokenTheme } from "@supernovaio/sdk-exporters"
 import { exportConfiguration } from ".."
 import { FileStructure } from "../../config"
-import { convertedToken, isAllowedTokenType, isRootIndirectedColorLeaf, analyzeTokensForOklchUtilities, generateOklchUtilityVariable } from "../content/token"
+import { convertedToken, isAllowedTokenType, sortTokensForOutput, isRootIndirectedColorLeaf, analyzeTokensForOklchUtilities, generateOklchUtilityVariable } from "../content/token"
 import { generateTypographyClass } from "../content/typography"
 import { generateComponentClasses } from "../content/component"
 import { DEFAULT_CONFIG_FILE_NAMES } from "../constants/defaults"
@@ -17,11 +17,12 @@ import { DEFAULT_CONFIG_FILE_NAMES } from "../constants/defaults"
  * This function filters tokens based on theme settings and ensures only allowed token types are included
  * 
  * @param tokens - Array of tokens to process
+ * @param tokenGroups - Array of token groups for naming (used to order the output)
  * @param themePath - Path of the theme (if applicable)
  * @param theme - Theme object (if applicable)
- * @returns Filtered array of tokens
+ * @returns Filtered array of tokens, in deterministic output order
  */
-function processTokens(tokens: Array<Token>, themePath: string = '', theme?: TokenTheme): Array<Token> {
+function processTokens(tokens: Array<Token>, tokenGroups: Array<TokenGroup>, themePath: string = '', theme?: TokenTheme): Array<Token> {
     // Skip if no tokens and empty files are disabled
     if (!exportConfiguration.generateEmptyFiles && tokens.length === 0) {
         return []
@@ -38,7 +39,9 @@ function processTokens(tokens: Array<Token>, themePath: string = '', theme?: Tok
 
     // Filter out tokens not allowed for Tailwind customization
     processedTokens = processedTokens.filter(token => isAllowedTokenType(token.tokenType))
-    return processedTokens
+
+    // Fix the output order so re-exports of unchanged tokens produce byte-identical files
+    return sortTokensForOutput(processedTokens, tokenGroups)
 }
 
 /**
@@ -340,7 +343,7 @@ export function styleOutputFile(tokens: Array<Token>, tokenGroups: Array<TokenGr
     const mappedTokens = new Map(tokens.map((token) => [token.id, token]))
 
     // Process tokens to get only themed ones if needed
-    const processedTokens = processTokens(tokens, themePath, theme)
+    const processedTokens = processTokens(tokens, tokenGroups, themePath, theme)
     if (processedTokens.length === 0) {
         return null
     }
@@ -449,7 +452,7 @@ export function generateStyleFiles(tokens: Array<Token>, tokenGroups: Array<Toke
     const mappedTokens = new Map(tokens.map((token) => [token.id, token]))
 
     // Process tokens to get only themed ones if needed
-    const processedTokens = processTokens(tokens, themePath, theme)
+    const processedTokens = processTokens(tokens, tokenGroups, themePath, theme)
     if (processedTokens.length === 0) {
         return []
     }

@@ -371,6 +371,29 @@ function matchColorUtilityPattern(fullPath: string, patternString: string): { ma
   return { matches, matchingPattern }
 }
 
+/** Numeric-aware, locale-pinned collation so `brand-50` sorts before `brand-100` on any machine */
+const TOKEN_NAME_COLLATOR = new Intl.Collator("en", { numeric: true, sensitivity: "variant" })
+
+/**
+ * Returns tokens in a deterministic output order: by token type, then by generated variable name.
+ * Supernova's API returns tokens in an unspecified order that shifts when tokens are edited, so
+ * emitting in API order reshuffles unchanged declarations and buries real changes in diff noise.
+ *
+ * @param tokens - Tokens to order (not mutated)
+ * @param tokenGroups - Array of token groups for naming
+ * @returns A new array sorted by type, then variable name, then id as a final tie-breaker
+ */
+export function sortTokensForOutput(tokens: Array<Token>, tokenGroups: Array<TokenGroup>): Array<Token> {
+  const names = new Map(tokens.map((token) => [token.id, tokenVariableName(token, tokenGroups)]))
+  const compareExact = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+  return [...tokens].sort((a, b) =>
+    compareExact(a.tokenType, b.tokenType) ||
+    TOKEN_NAME_COLLATOR.compare(names.get(a.id)!, names.get(b.id)!) ||
+    compareExact(names.get(a.id)!, names.get(b.id)!) ||
+    compareExact(a.id, b.id)
+  )
+}
+
 /**
  * Generates a code-safe variable name for a token based on its properties and configuration.
  * Includes type-specific prefix and considers token hierarchy.
